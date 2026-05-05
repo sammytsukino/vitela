@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>vitela</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="app">
+    <div class="app-main">
+      <div class="canvas-container">
+        <div class="canvas-stage">
+          <canvas id="previewCanvas" class="preview-canvas" width="1920" height="1080"></canvas>
+          <div class="canvas-meta"><span id="canvasSizeLabel"></span></div>
+        </div>
+      </div>
+
+      <aside class="gui-container" aria-label="controls">
+        <h1 class="brand-mark">vitela</h1>
+
+        <section class="glyph-collection">
+          <div class="glyph-collection-label">actions</div>
+          <div class="gui-actions">
+            <label class="file-input gui-file">
+              <span>load</span>
+              <input id="fileInput" type="file" accept="image/*" multiple />
+            </label>
+            <button type="button" id="exportBtn" class="btn btn-primary">png</button>
+            <button type="button" id="clearBtn" class="btn btn-ghost">clear</button>
+          </div>
+        </section>
+
+        <section class="glyph-collection">
+          <div class="glyph-collection-label">settings</div>
+          <div class="gui-folder-body">
+            <label class="gui-row"><span class="gui-row-label">top blur</span><input id="baseBlur" type="range" min="0" max="2" step="0.05" value="0.35" /><output id="baseBlurOut" class="gui-value">0.35</output></label>
+            <label class="gui-row"><span class="gui-row-label">veil</span><input id="veilStep" type="range" min="0" max="0.18" step="0.005" value="0.055" /><output id="veilStepOut" class="gui-value">0.055</output></label>
+            <label class="gui-row"><span class="gui-row-label">layer blur</span><input id="blurStep" type="range" min="0" max="8" step="0.1" value="1.3" /><output id="blurStepOut" class="gui-value">1.3</output></label>
+            <label class="gui-row"><span class="gui-row-label">paper translucency</span><input id="paperTranslucency" type="range" min="0" max="0.8" step="0.01" value="0.22" /><output id="paperTranslucencyOut" class="gui-value">0.22</output></label>
+            <label class="gui-row"><span class="gui-row-label">ink</span><input id="inkStrength" type="range" min="0.2" max="1.6" step="0.01" value="1.05" /><output id="inkStrengthOut" class="gui-value">1.05</output></label>
+            <label class="gui-row"><span class="gui-row-label">grain</span><input id="grainAmount" type="range" min="0" max="0.18" step="0.005" value="0.045" /><output id="grainAmountOut" class="gui-value">0.045</output></label>
+            <label class="gui-row"><span class="gui-row-label">scanner white</span><input id="paperWhite" type="range" min="232" max="255" step="1" value="248" /><output id="paperWhiteOut" class="gui-value">248</output></label>
+          </div>
+        </section>
+
+        <section class="glyph-collection">
+          <div class="glyph-collection-label">layers</div>
+          <div class="glyph-grid layers-scroll">
+            <ul id="layersList" class="layers-list layers-list--embedded"></ul>
+          </div>
+        </section>
+
+        <section class="glyph-collection">
+          <div class="glyph-collection-label">presets</div>
+          <div class="preset-controls">
+            <select id="presetSelect" class="preset-select"></select>
+            <div class="preset-grid">
+              <button type="button" id="loadPresetBtn" class="btn btn-ghost btn-compact">load</button>
+              <button type="button" id="savePresetBtn" class="btn btn-primary btn-compact">save</button>
+              <button type="button" id="deletePresetBtn" class="btn btn-ghost btn-compact">delete</button>
+              <button type="button" id="exportPresetsBtn" class="btn btn-ghost btn-compact">export</button>
+              <button type="button" id="importPresetsBtn" class="btn btn-ghost btn-compact">import</button>
+            </div>
+            <input id="importPresetsInput" type="file" accept="application/json,.json" hidden />
+          </div>
+        </section>
+      </aside>
+    </div>
+
+    <footer class="render-dock" aria-label="render">
+      <div class="render-dock-inner">
+        <button type="button" id="renderSequenceBtn" class="btn btn-render">sequence</button>
+        <span id="renderStatus" class="render-status mono-out" role="status"></span>
+      </div>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>
