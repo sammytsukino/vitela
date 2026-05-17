@@ -23,6 +23,12 @@ const controls = {
   inkStrength: document.getElementById("inkStrength"),
   grainAmount: document.getElementById("grainAmount"),
   paperWhite: document.getElementById("paperWhite"),
+  stackOffsetY: document.getElementById("stackOffsetY"),
+  stackOffsetZ: document.getElementById("stackOffsetZ"),
+  stackRotation: document.getElementById("stackRotation"),
+  stackOffsetYNum: document.getElementById("stackOffsetYNum"),
+  stackOffsetZNum: document.getElementById("stackOffsetZNum"),
+  stackRotationNum: document.getElementById("stackRotationNum"),
   baseBlurOut: document.getElementById("baseBlurOut"),
   veilStepOut: document.getElementById("veilStepOut"),
   blurStepOut: document.getElementById("blurStepOut"),
@@ -40,6 +46,11 @@ let dragIndex = -1;
 let isRenderingSequence = false;
 const PRESETS_STORAGE_KEY = "vellum-presets-v1";
 const DEFAULT_PRESET_NAME = "default";
+const STACK_DEFAULTS = {
+  stackOffsetY: 0.5,
+  stackOffsetZ: 0.0004,
+  stackRotation: 0.12,
+};
 
 function isProtectedPreset(name) {
   return String(name).toLowerCase() === DEFAULT_PRESET_NAME;
@@ -54,7 +65,43 @@ function currentSettings() {
     inkStrength: Number(controls.inkStrength.value),
     grainAmount: Number(controls.grainAmount.value),
     paperWhite: Number(controls.paperWhite.value),
+    stackOffsetY: Number(controls.stackOffsetY.value),
+    stackOffsetZ: Number(controls.stackOffsetZ.value),
+    stackRotation: Number(controls.stackRotation.value),
   };
+}
+
+function clampStackValue(value, min, max) {
+  return Math.min(max, Math.max(min, Number.isFinite(value) ? value : min));
+}
+
+function setRangeNumberPair(rangeEl, numberEl, value, format) {
+  const clamped = clampStackValue(value, Number(rangeEl.min), Number(rangeEl.max));
+  rangeEl.value = String(clamped);
+  numberEl.value = format(clamped);
+}
+
+function bindRangeNumber(rangeEl, numberEl, format) {
+  const min = Number(rangeEl.min);
+  const max = Number(rangeEl.max);
+
+  const apply = (value) => {
+    setRangeNumberPair(rangeEl, numberEl, value, format);
+    render();
+  };
+
+  rangeEl.addEventListener("input", () => apply(Number(rangeEl.value)));
+  numberEl.addEventListener("input", () => {
+    const raw = numberEl.value;
+    if (raw === "" || raw === "-" || raw === "." || raw === "-.") return;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+    apply(parsed);
+  });
+  numberEl.addEventListener("change", () => {
+    const parsed = Number(numberEl.value);
+    apply(Number.isFinite(parsed) ? parsed : Number(rangeEl.value));
+  });
 }
 
 function loadStoredPresets() {
@@ -82,6 +129,9 @@ function sanitizeSettings(settings) {
     inkStrength: Number(settings.inkStrength),
     grainAmount: Number(settings.grainAmount),
     paperWhite: Number(settings.paperWhite),
+    stackOffsetY: Number(settings.stackOffsetY ?? STACK_DEFAULTS.stackOffsetY),
+    stackOffsetZ: Number(settings.stackOffsetZ ?? STACK_DEFAULTS.stackOffsetZ),
+    stackRotation: Number(settings.stackRotation ?? STACK_DEFAULTS.stackRotation),
   };
   if (Object.values(out).some((value) => Number.isNaN(value))) return null;
   return out;
@@ -112,6 +162,24 @@ function applySettings(settings) {
   controls.inkStrength.value = String(settings.inkStrength ?? 1.05);
   controls.grainAmount.value = String(settings.grainAmount ?? 0.045);
   controls.paperWhite.value = String(settings.paperWhite ?? 248);
+  setRangeNumberPair(
+    controls.stackOffsetY,
+    controls.stackOffsetYNum,
+    settings.stackOffsetY ?? STACK_DEFAULTS.stackOffsetY,
+    (v) => v.toFixed(1)
+  );
+  setRangeNumberPair(
+    controls.stackOffsetZ,
+    controls.stackOffsetZNum,
+    settings.stackOffsetZ ?? STACK_DEFAULTS.stackOffsetZ,
+    (v) => v.toFixed(4)
+  );
+  setRangeNumberPair(
+    controls.stackRotation,
+    controls.stackRotationNum,
+    settings.stackRotation ?? STACK_DEFAULTS.stackRotation,
+    (v) => v.toFixed(2)
+  );
   render();
 }
 
@@ -219,8 +287,40 @@ function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength) {
   return layerCanvas;
 }
 
+function applyStackTransform(
+  targetCtx,
+  x,
+  y,
+  drawW,
+  drawH,
+  depthFromBottom,
+  stackOffsetY,
+  stackOffsetZ,
+  stackRotation
+) {
+  const yShift = depthFromBottom * stackOffsetY;
+  const scale = 1 + depthFromBottom * stackOffsetZ;
+  const rotationSign = depthFromBottom % 2 === 0 ? 1 : -1;
+  const rotationRad = (rotationSign * stackRotation * Math.PI) / 180;
+  targetCtx.translate(x + drawW * 0.5, y + drawH * 0.5 + yShift);
+  targetCtx.rotate(rotationRad);
+  targetCtx.scale(scale, scale);
+  targetCtx.translate(-drawW * 0.5, -drawH * 0.5);
+}
+
 function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
-  const { baseBlur, white, grain, blurStep, veilStep, paperTranslucency, inkStrength } = settings;
+  const {
+    baseBlur,
+    white,
+    grain,
+    blurStep,
+    veilStep,
+    paperTranslucency,
+    inkStrength,
+    stackOffsetY,
+    stackOffsetZ,
+    stackRotation,
+  } = settings;
   targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
   targetCtx.fillStyle = `rgb(${white}, ${white}, ${white})`;
   targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
@@ -234,14 +334,25 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     const blurPx = baseBlur + depthFromTop * blurStep;
     const veilAlpha = Math.min(0.45, 0.02 + depthFromTop * veilStep);
     const vellumLayer = buildVellumLayer(layer.image, drawW, drawH, paperTranslucency, inkStrength);
+    const depthFromBottom = i;
     targetCtx.save();
+    applyStackTransform(
+      targetCtx,
+      x,
+      y,
+      drawW,
+      drawH,
+      depthFromBottom,
+      stackOffsetY,
+      stackOffsetZ,
+      stackRotation
+    );
     targetCtx.filter = `blur(${blurPx.toFixed(2)}px)`;
-    targetCtx.drawImage(vellumLayer, x, y, drawW, drawH);
-    targetCtx.restore();
-    targetCtx.save();
+    targetCtx.drawImage(vellumLayer, 0, 0, drawW, drawH);
+    targetCtx.filter = "none";
     targetCtx.globalAlpha = veilAlpha;
     targetCtx.fillStyle = "#fff";
-    targetCtx.fillRect(x, y, drawW, drawH);
+    targetCtx.fillRect(0, 0, drawW, drawH);
     targetCtx.restore();
   }
 
@@ -256,6 +367,9 @@ function render() {
   const veilStep = Number(controls.veilStep.value);
   const paperTranslucency = Number(controls.paperTranslucency.value);
   const inkStrength = Number(controls.inkStrength.value);
+  const stackOffsetY = Number(controls.stackOffsetY.value);
+  const stackOffsetZ = Number(controls.stackOffsetZ.value);
+  const stackRotation = Number(controls.stackRotation.value);
 
   controls.baseBlurOut.textContent = baseBlur.toFixed(2);
   controls.paperWhiteOut.textContent = String(white);
@@ -274,6 +388,9 @@ function render() {
     veilStep,
     paperTranslucency,
     inkStrength,
+    stackOffsetY,
+    stackOffsetZ,
+    stackRotation,
   });
 }
 
@@ -308,6 +425,9 @@ async function renderSequence() {
     veilStep: Number(controls.veilStep.value),
     paperTranslucency: Number(controls.paperTranslucency.value),
     inkStrength: Number(controls.inkStrength.value),
+    stackOffsetY: Number(controls.stackOffsetY.value),
+    stackOffsetZ: Number(controls.stackOffsetZ.value),
+    stackRotation: Number(controls.stackRotation.value),
   };
 
   const offscreen = document.createElement("canvas");
@@ -412,7 +532,19 @@ fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);
   if (files.length) handleFiles(files);
 });
-["baseBlur", "veilStep", "blurStep", "paperTranslucency", "inkStrength", "grainAmount", "paperWhite"].forEach((k) => controls[k].addEventListener("input", render));
+[
+  "baseBlur",
+  "veilStep",
+  "blurStep",
+  "paperTranslucency",
+  "inkStrength",
+  "grainAmount",
+  "paperWhite",
+].forEach((k) => controls[k].addEventListener("input", render));
+
+bindRangeNumber(controls.stackOffsetY, controls.stackOffsetYNum, (v) => v.toFixed(1));
+bindRangeNumber(controls.stackOffsetZ, controls.stackOffsetZNum, (v) => v.toFixed(4));
+bindRangeNumber(controls.stackRotation, controls.stackRotationNum, (v) => v.toFixed(2));
 exportBtn.onclick = () => {
   if (!layers.length) return;
   triggerDownload(

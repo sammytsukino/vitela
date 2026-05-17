@@ -43,6 +43,27 @@
             <label class="gui-row"><span class="gui-row-label">ink</span><input id="inkStrength" type="range" min="0.2" max="1.6" step="0.01" value="1.05" /><output id="inkStrengthOut" class="gui-value">1.05</output></label>
             <label class="gui-row"><span class="gui-row-label">grain</span><input id="grainAmount" type="range" min="0" max="0.18" step="0.005" value="0.045" /><output id="grainAmountOut" class="gui-value">0.045</output></label>
             <label class="gui-row"><span class="gui-row-label">scanner white</span><input id="paperWhite" type="range" min="232" max="255" step="1" value="248" /><output id="paperWhiteOut" class="gui-value">248</output></label>
+            <label class="gui-row gui-row--dual">
+              <span class="gui-row-label">stack offset Y</span>
+              <div class="gui-row-controls">
+                <input id="stackOffsetY" type="range" min="-40" max="40" step="0.1" value="0.5" />
+                <input id="stackOffsetYNum" type="number" class="gui-num" min="-40" max="40" step="0.1" value="0.5" />
+              </div>
+            </label>
+            <label class="gui-row gui-row--dual">
+              <span class="gui-row-label">stack offset Z</span>
+              <div class="gui-row-controls">
+                <input id="stackOffsetZ" type="range" min="-0.02" max="0.02" step="0.0001" value="0.0004" />
+                <input id="stackOffsetZNum" type="number" class="gui-num" min="-0.02" max="0.02" step="0.0001" value="0.0004" />
+              </div>
+            </label>
+            <label class="gui-row gui-row--dual">
+              <span class="gui-row-label">stack rotation</span>
+              <div class="gui-row-controls">
+                <input id="stackRotation" type="range" min="-1.5" max="1.5" step="0.01" value="0.12" />
+                <input id="stackRotationNum" type="number" class="gui-num" min="-1.5" max="1.5" step="0.01" value="0.12" />
+              </div>
+            </label>
           </div>
         </section>
 

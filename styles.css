@@ -196,6 +196,45 @@ body.app {
   cursor: pointer;
 }
 
+.gui-row--dual .gui-row-controls {
+  display: grid;
+  grid-template-columns: 1fr 54px;
+  gap: 8px;
+  align-items: center;
+  margin-top: 1px;
+}
+
+.gui-row--dual input[type="range"] {
+  margin: 0;
+}
+
+.gui-num {
+  width: 100%;
+  margin: 0;
+  padding: 4px 5px;
+  border: none;
+  border-bottom: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  -moz-appearance: textfield;
+}
+
+.gui-num::-webkit-outer-spin-button,
+.gui-num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.gui-num:focus {
+  outline: none;
+  border-bottom-color: var(--accent-dim);
+}
+
 .gui-value {
   font-size: 10px;
   font-weight: 400;
