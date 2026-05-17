@@ -279,7 +279,8 @@ function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength) {
     const a = px[i + 3] / 255;
     const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     const ink = Math.pow(1 - luma, 0.85);
-    const alphaFromTone = Math.min(1, paperTranslucency + ink * inkStrength);
+    const vellumOpacity = Math.min(1, ink * inkStrength);
+    const alphaFromTone = paperTranslucency + (1 - paperTranslucency) * vellumOpacity;
     px[i + 3] = Math.round(255 * a * alphaFromTone);
   }
 
