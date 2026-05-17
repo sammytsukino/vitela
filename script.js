@@ -20,6 +20,7 @@ const controls = {
   veilStep: document.getElementById("veilStep"),
   blurStep: document.getElementById("blurStep"),
   paperTranslucency: document.getElementById("paperTranslucency"),
+  colorTolerance: document.getElementById("colorTolerance"),
   inkStrength: document.getElementById("inkStrength"),
   grainAmount: document.getElementById("grainAmount"),
   paperWhite: document.getElementById("paperWhite"),
@@ -33,6 +34,7 @@ const controls = {
   veilStepOut: document.getElementById("veilStepOut"),
   blurStepOut: document.getElementById("blurStepOut"),
   paperTranslucencyOut: document.getElementById("paperTranslucencyOut"),
+  colorToleranceOut: document.getElementById("colorToleranceOut"),
   inkStrengthOut: document.getElementById("inkStrengthOut"),
   grainAmountOut: document.getElementById("grainAmountOut"),
   paperWhiteOut: document.getElementById("paperWhiteOut"),
@@ -62,6 +64,7 @@ function currentSettings() {
     veilStep: Number(controls.veilStep.value),
     blurStep: Number(controls.blurStep.value),
     paperTranslucency: Number(controls.paperTranslucency.value),
+    colorTolerance: Number(controls.colorTolerance.value),
     inkStrength: Number(controls.inkStrength.value),
     grainAmount: Number(controls.grainAmount.value),
     paperWhite: Number(controls.paperWhite.value),
@@ -126,6 +129,7 @@ function sanitizeSettings(settings) {
     veilStep: Number(settings.veilStep),
     blurStep: Number(settings.blurStep),
     paperTranslucency: Number(settings.paperTranslucency),
+    colorTolerance: Number(settings.colorTolerance ?? 0.09),
     inkStrength: Number(settings.inkStrength),
     grainAmount: Number(settings.grainAmount),
     paperWhite: Number(settings.paperWhite),
@@ -159,6 +163,7 @@ function applySettings(settings) {
   controls.veilStep.value = String(settings.veilStep ?? 0.055);
   controls.blurStep.value = String(settings.blurStep ?? 1.3);
   controls.paperTranslucency.value = String(settings.paperTranslucency ?? 0.22);
+  controls.colorTolerance.value = String(settings.colorTolerance ?? 0.09);
   controls.inkStrength.value = String(settings.inkStrength ?? 1.05);
   controls.grainAmount.value = String(settings.grainAmount ?? 0.045);
   controls.paperWhite.value = String(settings.paperWhite ?? 248);
@@ -261,7 +266,18 @@ function drawGrain(targetCtx, targetCanvas, alpha) {
   targetCtx.putImageData(imageData, 0, 0);
 }
 
-function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength) {
+function pixelChroma(r, g, b) {
+  const rn = r / 255;
+  const gn = g / 255;
+  const bn = b / 255;
+  return Math.max(rn, gn, bn) - Math.min(rn, gn, bn);
+}
+
+function neutralVellumOpacity(luma, inkStrength) {
+  return Math.min(1, Math.pow(1 - luma, 0.85) * inkStrength);
+}
+
+function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength, colorTolerance) {
   const w = Math.max(1, Math.round(drawW));
   const h = Math.max(1, Math.round(drawH));
   layerCanvas.width = w;
@@ -278,9 +294,14 @@ function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength) {
     const b = px[i + 2];
     const a = px[i + 3] / 255;
     const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    const ink = Math.pow(1 - luma, 0.85);
-    const vellumOpacity = Math.min(1, ink * inkStrength);
-    const alphaFromTone = paperTranslucency + (1 - paperTranslucency) * vellumOpacity;
+    const chroma = pixelChroma(r, g, b);
+
+    let alphaFromTone = 1;
+    if (chroma <= colorTolerance) {
+      const vellumOpacity = neutralVellumOpacity(luma, inkStrength);
+      alphaFromTone = paperTranslucency + (1 - paperTranslucency) * vellumOpacity;
+    }
+
     px[i + 3] = Math.round(255 * a * alphaFromTone);
   }
 
@@ -317,6 +338,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     blurStep,
     veilStep,
     paperTranslucency,
+    colorTolerance,
     inkStrength,
     stackOffsetY,
     stackOffsetZ,
@@ -334,7 +356,14 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     const depthFromTop = layersToRender.length - 1 - i;
     const blurPx = baseBlur + depthFromTop * blurStep;
     const veilAlpha = Math.min(0.45, 0.02 + depthFromTop * veilStep);
-    const vellumLayer = buildVellumLayer(layer.image, drawW, drawH, paperTranslucency, inkStrength);
+    const vellumLayer = buildVellumLayer(
+      layer.image,
+      drawW,
+      drawH,
+      paperTranslucency,
+      inkStrength,
+      colorTolerance
+    );
     const depthFromBottom = i;
     targetCtx.save();
     applyStackTransform(
@@ -367,6 +396,7 @@ function render() {
   const blurStep = Number(controls.blurStep.value);
   const veilStep = Number(controls.veilStep.value);
   const paperTranslucency = Number(controls.paperTranslucency.value);
+  const colorTolerance = Number(controls.colorTolerance.value);
   const inkStrength = Number(controls.inkStrength.value);
   const stackOffsetY = Number(controls.stackOffsetY.value);
   const stackOffsetZ = Number(controls.stackOffsetZ.value);
@@ -378,6 +408,7 @@ function render() {
   controls.veilStepOut.textContent = veilStep.toFixed(3);
   controls.blurStepOut.textContent = blurStep.toFixed(1);
   controls.paperTranslucencyOut.textContent = paperTranslucency.toFixed(2);
+  controls.colorToleranceOut.textContent = colorTolerance.toFixed(2);
   controls.inkStrengthOut.textContent = inkStrength.toFixed(2);
 
   const visibleLayers = layers.filter((layer) => layer.visible);
@@ -388,6 +419,7 @@ function render() {
     blurStep,
     veilStep,
     paperTranslucency,
+    colorTolerance,
     inkStrength,
     stackOffsetY,
     stackOffsetZ,
@@ -425,6 +457,7 @@ async function renderSequence() {
     blurStep: Number(controls.blurStep.value),
     veilStep: Number(controls.veilStep.value),
     paperTranslucency: Number(controls.paperTranslucency.value),
+    colorTolerance: Number(controls.colorTolerance.value),
     inkStrength: Number(controls.inkStrength.value),
     stackOffsetY: Number(controls.stackOffsetY.value),
     stackOffsetZ: Number(controls.stackOffsetZ.value),
@@ -538,6 +571,7 @@ fileInput.addEventListener("change", (e) => {
   "veilStep",
   "blurStep",
   "paperTranslucency",
+  "colorTolerance",
   "inkStrength",
   "grainAmount",
   "paperWhite",
