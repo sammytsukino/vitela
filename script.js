@@ -52,11 +52,20 @@ let dragIndex = -1;
 let isRenderingSequence = false;
 const PRESETS_STORAGE_KEY = "vellum-presets-v1";
 const DEFAULT_PRESET_NAME = "default";
-const STACK_DEFAULTS = {
+const SETTINGS_DEFAULTS = {
+  baseBlur: 0.35,
+  veilStep: 0,
+  paperWarmthStep: 0.049,
+  blurStep: 1.5,
+  paperTranslucency: 0.76,
+  colorTolerance: 0.09,
+  inkStrength: 1.05,
+  grainAmount: 0.075,
+  paperWhite: 248,
   stackOffsetY: 0.5,
   stackOffsetZ: 0.0004,
-  stackRotation: 0.12,
-  stackRotationZoom: 0.004,
+  stackRotation: 0.42,
+  stackRotationZoom: 0.0055,
 };
 
 function isProtectedPreset(name) {
@@ -122,7 +131,7 @@ function loadStoredPresets() {
   } catch (error) {
     console.warn("could not load presets", error);
   }
-  return { [DEFAULT_PRESET_NAME]: currentSettings() };
+  return { [DEFAULT_PRESET_NAME]: { ...SETTINGS_DEFAULTS } };
 }
 
 function saveStoredPresets(presets) {
@@ -134,17 +143,17 @@ function sanitizeSettings(settings) {
   const out = {
     baseBlur: Number(settings.baseBlur),
     veilStep: Number(settings.veilStep),
-    paperWarmthStep: Number(settings.paperWarmthStep ?? 0.014),
+    paperWarmthStep: Number(settings.paperWarmthStep ?? SETTINGS_DEFAULTS.paperWarmthStep),
     blurStep: Number(settings.blurStep),
     paperTranslucency: Number(settings.paperTranslucency),
-    colorTolerance: Number(settings.colorTolerance ?? 0.09),
+    colorTolerance: Number(settings.colorTolerance ?? SETTINGS_DEFAULTS.colorTolerance),
     inkStrength: Number(settings.inkStrength),
     grainAmount: Number(settings.grainAmount),
     paperWhite: Number(settings.paperWhite),
-    stackOffsetY: Number(settings.stackOffsetY ?? STACK_DEFAULTS.stackOffsetY),
-    stackOffsetZ: Number(settings.stackOffsetZ ?? STACK_DEFAULTS.stackOffsetZ),
-    stackRotation: Number(settings.stackRotation ?? STACK_DEFAULTS.stackRotation),
-    stackRotationZoom: Number(settings.stackRotationZoom ?? STACK_DEFAULTS.stackRotationZoom),
+    stackOffsetY: Number(settings.stackOffsetY ?? SETTINGS_DEFAULTS.stackOffsetY),
+    stackOffsetZ: Number(settings.stackOffsetZ ?? SETTINGS_DEFAULTS.stackOffsetZ),
+    stackRotation: Number(settings.stackRotation ?? SETTINGS_DEFAULTS.stackRotation),
+    stackRotationZoom: Number(settings.stackRotationZoom ?? SETTINGS_DEFAULTS.stackRotationZoom),
   };
   if (Object.values(out).some((value) => Number.isNaN(value))) return null;
   return out;
@@ -168,37 +177,37 @@ function refreshPresetSelect(preferredName = "") {
 }
 
 function applySettings(settings) {
-  controls.baseBlur.value = String(settings.baseBlur ?? 0.35);
-  controls.veilStep.value = String(settings.veilStep ?? 0.055);
-  controls.paperWarmthStep.value = String(settings.paperWarmthStep ?? 0.014);
-  controls.blurStep.value = String(settings.blurStep ?? 1.3);
-  controls.paperTranslucency.value = String(settings.paperTranslucency ?? 0.22);
-  controls.colorTolerance.value = String(settings.colorTolerance ?? 0.09);
-  controls.inkStrength.value = String(settings.inkStrength ?? 1.05);
-  controls.grainAmount.value = String(settings.grainAmount ?? 0.08);
-  controls.paperWhite.value = String(settings.paperWhite ?? 248);
+  controls.baseBlur.value = String(settings.baseBlur ?? SETTINGS_DEFAULTS.baseBlur);
+  controls.veilStep.value = String(settings.veilStep ?? SETTINGS_DEFAULTS.veilStep);
+  controls.paperWarmthStep.value = String(settings.paperWarmthStep ?? SETTINGS_DEFAULTS.paperWarmthStep);
+  controls.blurStep.value = String(settings.blurStep ?? SETTINGS_DEFAULTS.blurStep);
+  controls.paperTranslucency.value = String(settings.paperTranslucency ?? SETTINGS_DEFAULTS.paperTranslucency);
+  controls.colorTolerance.value = String(settings.colorTolerance ?? SETTINGS_DEFAULTS.colorTolerance);
+  controls.inkStrength.value = String(settings.inkStrength ?? SETTINGS_DEFAULTS.inkStrength);
+  controls.grainAmount.value = String(settings.grainAmount ?? SETTINGS_DEFAULTS.grainAmount);
+  controls.paperWhite.value = String(settings.paperWhite ?? SETTINGS_DEFAULTS.paperWhite);
   setRangeNumberPair(
     controls.stackOffsetY,
     controls.stackOffsetYNum,
-    settings.stackOffsetY ?? STACK_DEFAULTS.stackOffsetY,
+    settings.stackOffsetY ?? SETTINGS_DEFAULTS.stackOffsetY,
     (v) => v.toFixed(1)
   );
   setRangeNumberPair(
     controls.stackOffsetZ,
     controls.stackOffsetZNum,
-    settings.stackOffsetZ ?? STACK_DEFAULTS.stackOffsetZ,
+    settings.stackOffsetZ ?? SETTINGS_DEFAULTS.stackOffsetZ,
     (v) => v.toFixed(4)
   );
   setRangeNumberPair(
     controls.stackRotation,
     controls.stackRotationNum,
-    settings.stackRotation ?? STACK_DEFAULTS.stackRotation,
+    settings.stackRotation ?? SETTINGS_DEFAULTS.stackRotation,
     (v) => v.toFixed(2)
   );
   setRangeNumberPair(
     controls.stackRotationZoom,
     controls.stackRotationZoomNum,
-    settings.stackRotationZoom ?? STACK_DEFAULTS.stackRotationZoom,
+    settings.stackRotationZoom ?? SETTINGS_DEFAULTS.stackRotationZoom,
     (v) => v.toFixed(4)
   );
   render();
@@ -796,7 +805,11 @@ importPresetsInput.onchange = async (event) => {
 };
 
 if (!localStorage.getItem(PRESETS_STORAGE_KEY)) {
-  saveStoredPresets({ [DEFAULT_PRESET_NAME]: currentSettings() });
+  saveStoredPresets({ [DEFAULT_PRESET_NAME]: { ...SETTINGS_DEFAULTS } });
+  applySettings(SETTINGS_DEFAULTS);
+} else {
+  const presets = loadStoredPresets();
+  if (presets[DEFAULT_PRESET_NAME]) applySettings(presets[DEFAULT_PRESET_NAME]);
 }
 refreshPresetSelect(DEFAULT_PRESET_NAME);
 updateCanvasSizeLabel();
