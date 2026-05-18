@@ -18,6 +18,7 @@ const importPresetsInput = document.getElementById("importPresetsInput");
 const controls = {
   baseBlur: document.getElementById("baseBlur"),
   veilStep: document.getElementById("veilStep"),
+  paperWarmthStep: document.getElementById("paperWarmthStep"),
   blurStep: document.getElementById("blurStep"),
   paperTranslucency: document.getElementById("paperTranslucency"),
   colorTolerance: document.getElementById("colorTolerance"),
@@ -34,6 +35,7 @@ const controls = {
   stackRotationZoomNum: document.getElementById("stackRotationZoomNum"),
   baseBlurOut: document.getElementById("baseBlurOut"),
   veilStepOut: document.getElementById("veilStepOut"),
+  paperWarmthStepOut: document.getElementById("paperWarmthStepOut"),
   blurStepOut: document.getElementById("blurStepOut"),
   paperTranslucencyOut: document.getElementById("paperTranslucencyOut"),
   colorToleranceOut: document.getElementById("colorToleranceOut"),
@@ -65,6 +67,7 @@ function currentSettings() {
   return {
     baseBlur: Number(controls.baseBlur.value),
     veilStep: Number(controls.veilStep.value),
+    paperWarmthStep: Number(controls.paperWarmthStep.value),
     blurStep: Number(controls.blurStep.value),
     paperTranslucency: Number(controls.paperTranslucency.value),
     colorTolerance: Number(controls.colorTolerance.value),
@@ -131,6 +134,7 @@ function sanitizeSettings(settings) {
   const out = {
     baseBlur: Number(settings.baseBlur),
     veilStep: Number(settings.veilStep),
+    paperWarmthStep: Number(settings.paperWarmthStep ?? 0.014),
     blurStep: Number(settings.blurStep),
     paperTranslucency: Number(settings.paperTranslucency),
     colorTolerance: Number(settings.colorTolerance ?? 0.09),
@@ -166,11 +170,12 @@ function refreshPresetSelect(preferredName = "") {
 function applySettings(settings) {
   controls.baseBlur.value = String(settings.baseBlur ?? 0.35);
   controls.veilStep.value = String(settings.veilStep ?? 0.055);
+  controls.paperWarmthStep.value = String(settings.paperWarmthStep ?? 0.014);
   controls.blurStep.value = String(settings.blurStep ?? 1.3);
   controls.paperTranslucency.value = String(settings.paperTranslucency ?? 0.22);
   controls.colorTolerance.value = String(settings.colorTolerance ?? 0.09);
   controls.inkStrength.value = String(settings.inkStrength ?? 1.05);
-  controls.grainAmount.value = String(settings.grainAmount ?? 0.045);
+  controls.grainAmount.value = String(settings.grainAmount ?? 0.08);
   controls.paperWhite.value = String(settings.paperWhite ?? 248);
   setRangeNumberPair(
     controls.stackOffsetY,
@@ -263,18 +268,66 @@ function updateCanvasSizeLabel() {
   canvasSizeLabel.textContent = `canvas ${canvas.width}x${canvas.height}px`;
 }
 
-function drawGrain(targetCtx, targetCanvas, alpha) {
-  if (alpha <= 0) return;
-  const imageData = targetCtx.getImageData(0, 0, targetCanvas.width, targetCanvas.height);
-  const px = imageData.data;
-  const strength = Math.max(2, Math.round(32 * alpha));
-  for (let i = 0; i < px.length; i += 4) {
-    const jitter = (Math.random() - 0.5) * strength;
-    px[i] = Math.min(255, Math.max(0, px[i] + jitter));
-    px[i + 1] = Math.min(255, Math.max(0, px[i + 1] + jitter));
-    px[i + 2] = Math.min(255, Math.max(0, px[i + 2] + jitter));
+const filmGrainCache = new Map();
+
+function buildFilmGrainTile(tileSize, paperWhite) {
+  const noise = new Float32Array(tileSize * tileSize);
+  for (let i = 0; i < noise.length; i += 1) {
+    noise[i] = Math.random();
   }
-  targetCtx.putImageData(imageData, 0, 0);
+
+  const tile = document.createElement("canvas");
+  tile.width = tileSize;
+  tile.height = tileSize;
+  const tileCtx = tile.getContext("2d");
+  const img = tileCtx.createImageData(tileSize, tileSize);
+  const px = img.data;
+  const warmShift = (paperWhite - 248) * 0.12;
+
+  for (let y = 0; y < tileSize; y += 1) {
+    for (let x = 0; x < tileSize; x += 1) {
+      let sum = 0;
+      for (let dy = -1; dy <= 1; dy += 1) {
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const nx = (x + dx + tileSize) % tileSize;
+          const ny = (y + dy + tileSize) % tileSize;
+          sum += noise[ny * tileSize + nx];
+        }
+      }
+      const v = sum / 9;
+      const gray = Math.round(128 + (v - 0.32) * 92);
+      const i = (y * tileSize + x) * 4;
+      px[i] = Math.min(255, Math.max(0, gray + 5 + warmShift));
+      px[i + 1] = Math.min(255, Math.max(0, gray + 2 + warmShift * 0.6));
+      px[i + 2] = Math.min(255, Math.max(0, gray - 5 + warmShift * 0.2));
+      px[i + 3] = 255;
+    }
+  }
+
+  tileCtx.putImageData(img, 0, 0);
+  return tile;
+}
+
+function getFilmGrainTile(paperWhite) {
+  const tileSize = 128;
+  const key = `${tileSize}-${paperWhite}`;
+  if (!filmGrainCache.has(key)) {
+    filmGrainCache.set(key, buildFilmGrainTile(tileSize, paperWhite));
+  }
+  return filmGrainCache.get(key);
+}
+
+function drawGrain(targetCtx, targetCanvas, amount, paperWhite) {
+  if (amount <= 0) return;
+  const tile = getFilmGrainTile(paperWhite);
+  const { width, height } = targetCanvas;
+
+  targetCtx.save();
+  targetCtx.globalCompositeOperation = "screen";
+  targetCtx.globalAlpha = Math.min(0.88, amount * 3.8);
+  targetCtx.fillStyle = targetCtx.createPattern(tile, "repeat");
+  targetCtx.fillRect(0, 0, width, height);
+  targetCtx.restore();
 }
 
 function pixelChroma(r, g, b) {
@@ -359,6 +412,54 @@ function applyStackTransform(
   targetCtx.translate(-drawW * 0.5, -drawH * 0.5);
 }
 
+function paperWarmthScale(paperTranslucency) {
+  const t = Math.max(0, Math.min(1, paperTranslucency));
+  return 0.08 + t * t * 0.92;
+}
+
+function effectivePaperWarmth(paperWarmthStep, paperTranslucency, stackIndex, stackTotal) {
+  const depthBoost = 0.8 + (stackIndex / Math.max(1, stackTotal)) * 0.45;
+  return paperWarmthStep * paperWarmthScale(paperTranslucency) * depthBoost;
+}
+
+function warmVeilColor(paperWhite, depthFromTop, paperWarmthStep, paperTranslucency) {
+  const warmthScale = paperWarmthScale(paperTranslucency);
+  const stackBias = Math.min(1, depthFromTop * paperWarmthStep * 24 * warmthScale);
+  const g = Math.min(255, Math.round(paperWhite + 4 + stackBias * 10));
+  const b = Math.max(198, Math.round(paperWhite - 14 - stackBias * 38));
+  return `rgb(255, ${g}, ${b})`;
+}
+
+function applyPaperWarmthAccumulation(targetCtx, targetCanvas, warmthAlpha, paperWhite, paperTranslucency) {
+  if (warmthAlpha <= 0) return;
+  const scaled = warmthAlpha * paperWarmthScale(paperTranslucency);
+  const colorAlpha = Math.min(0.42, scaled * 1.15);
+  const softAlpha = Math.min(0.28, scaled * 0.7);
+  if (colorAlpha <= 0 && softAlpha <= 0) return;
+
+  const wg = Math.min(255, paperWhite + 10);
+  const wb = Math.max(196, paperWhite - 36);
+  const warmFill = `rgb(255, ${wg}, ${wb})`;
+
+  if (colorAlpha > 0) {
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = "color";
+    targetCtx.globalAlpha = colorAlpha;
+    targetCtx.fillStyle = warmFill;
+    targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+    targetCtx.restore();
+  }
+
+  if (softAlpha > 0) {
+    targetCtx.save();
+    targetCtx.globalCompositeOperation = "soft-light";
+    targetCtx.globalAlpha = softAlpha;
+    targetCtx.fillStyle = warmFill;
+    targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
+    targetCtx.restore();
+  }
+}
+
 function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
   const {
     baseBlur,
@@ -366,6 +467,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     grain,
     blurStep,
     veilStep,
+    paperWarmthStep,
     paperTranslucency,
     colorTolerance,
     inkStrength,
@@ -412,12 +514,19 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     targetCtx.drawImage(vellumLayer, 0, 0, drawW, drawH);
     targetCtx.filter = "none";
     targetCtx.globalAlpha = veilAlpha;
-    targetCtx.fillStyle = "#fff";
+    targetCtx.fillStyle = warmVeilColor(white, depthFromTop, paperWarmthStep, paperTranslucency);
     targetCtx.fillRect(0, 0, drawW, drawH);
     targetCtx.restore();
+    const layerWarmth = effectivePaperWarmth(
+      paperWarmthStep,
+      paperTranslucency,
+      i + 1,
+      layersToRender.length
+    );
+    applyPaperWarmthAccumulation(targetCtx, targetCanvas, layerWarmth, white, paperTranslucency);
   }
 
-  drawGrain(targetCtx, targetCanvas, grain);
+  drawGrain(targetCtx, targetCanvas, grain, white);
 }
 
 function render() {
@@ -426,6 +535,7 @@ function render() {
   const grain = Number(controls.grainAmount.value);
   const blurStep = Number(controls.blurStep.value);
   const veilStep = Number(controls.veilStep.value);
+  const paperWarmthStep = Number(controls.paperWarmthStep.value);
   const paperTranslucency = Number(controls.paperTranslucency.value);
   const colorTolerance = Number(controls.colorTolerance.value);
   const inkStrength = Number(controls.inkStrength.value);
@@ -438,6 +548,7 @@ function render() {
   controls.paperWhiteOut.textContent = String(white);
   controls.grainAmountOut.textContent = grain.toFixed(3);
   controls.veilStepOut.textContent = veilStep.toFixed(3);
+  controls.paperWarmthStepOut.textContent = paperWarmthStep.toFixed(3);
   controls.blurStepOut.textContent = blurStep.toFixed(1);
   controls.paperTranslucencyOut.textContent = paperTranslucency.toFixed(2);
   controls.colorToleranceOut.textContent = colorTolerance.toFixed(2);
@@ -450,6 +561,7 @@ function render() {
     grain,
     blurStep,
     veilStep,
+    paperWarmthStep,
     paperTranslucency,
     colorTolerance,
     inkStrength,
@@ -489,6 +601,7 @@ async function renderSequence() {
     grain: Number(controls.grainAmount.value),
     blurStep: Number(controls.blurStep.value),
     veilStep: Number(controls.veilStep.value),
+    paperWarmthStep: Number(controls.paperWarmthStep.value),
     paperTranslucency: Number(controls.paperTranslucency.value),
     colorTolerance: Number(controls.colorTolerance.value),
     inkStrength: Number(controls.inkStrength.value),
@@ -603,6 +716,7 @@ fileInput.addEventListener("change", (e) => {
 [
   "baseBlur",
   "veilStep",
+  "paperWarmthStep",
   "blurStep",
   "paperTranslucency",
   "colorTolerance",
