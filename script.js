@@ -27,9 +27,11 @@ const controls = {
   stackOffsetY: document.getElementById("stackOffsetY"),
   stackOffsetZ: document.getElementById("stackOffsetZ"),
   stackRotation: document.getElementById("stackRotation"),
+  stackRotationZoom: document.getElementById("stackRotationZoom"),
   stackOffsetYNum: document.getElementById("stackOffsetYNum"),
   stackOffsetZNum: document.getElementById("stackOffsetZNum"),
   stackRotationNum: document.getElementById("stackRotationNum"),
+  stackRotationZoomNum: document.getElementById("stackRotationZoomNum"),
   baseBlurOut: document.getElementById("baseBlurOut"),
   veilStepOut: document.getElementById("veilStepOut"),
   blurStepOut: document.getElementById("blurStepOut"),
@@ -52,6 +54,7 @@ const STACK_DEFAULTS = {
   stackOffsetY: 0.5,
   stackOffsetZ: 0.0004,
   stackRotation: 0.12,
+  stackRotationZoom: 0.004,
 };
 
 function isProtectedPreset(name) {
@@ -71,6 +74,7 @@ function currentSettings() {
     stackOffsetY: Number(controls.stackOffsetY.value),
     stackOffsetZ: Number(controls.stackOffsetZ.value),
     stackRotation: Number(controls.stackRotation.value),
+    stackRotationZoom: Number(controls.stackRotationZoom.value),
   };
 }
 
@@ -136,6 +140,7 @@ function sanitizeSettings(settings) {
     stackOffsetY: Number(settings.stackOffsetY ?? STACK_DEFAULTS.stackOffsetY),
     stackOffsetZ: Number(settings.stackOffsetZ ?? STACK_DEFAULTS.stackOffsetZ),
     stackRotation: Number(settings.stackRotation ?? STACK_DEFAULTS.stackRotation),
+    stackRotationZoom: Number(settings.stackRotationZoom ?? STACK_DEFAULTS.stackRotationZoom),
   };
   if (Object.values(out).some((value) => Number.isNaN(value))) return null;
   return out;
@@ -184,6 +189,12 @@ function applySettings(settings) {
     controls.stackRotationNum,
     settings.stackRotation ?? STACK_DEFAULTS.stackRotation,
     (v) => v.toFixed(2)
+  );
+  setRangeNumberPair(
+    controls.stackRotationZoom,
+    controls.stackRotationZoomNum,
+    settings.stackRotationZoom ?? STACK_DEFAULTS.stackRotationZoom,
+    (v) => v.toFixed(4)
   );
   render();
 }
@@ -309,6 +320,16 @@ function buildVellumLayer(image, drawW, drawH, paperTranslucency, inkStrength, c
   return layerCanvas;
 }
 
+function rotationCoverScale(degrees, aspect) {
+  if (degrees === 0) return 1;
+  const rad = (Math.abs(degrees) * Math.PI) / 180;
+  const c = Math.cos(rad);
+  const s = Math.sin(rad);
+  const w = aspect;
+  const h = 1;
+  return Math.max((w * c + h * s) / w, (w * s + h * c) / h);
+}
+
 function applyStackTransform(
   targetCtx,
   x,
@@ -318,12 +339,20 @@ function applyStackTransform(
   depthFromBottom,
   stackOffsetY,
   stackOffsetZ,
-  stackRotation
+  stackRotation,
+  stackRotationZoom
 ) {
   const yShift = depthFromBottom * stackOffsetY;
-  const scale = 1 + depthFromBottom * stackOffsetZ;
+  const depthScale = 1 + depthFromBottom * stackOffsetZ;
   const rotationSign = depthFromBottom % 2 === 0 ? 1 : -1;
-  const rotationRad = (rotationSign * stackRotation * Math.PI) / 180;
+  const layerRotationDeg = rotationSign * stackRotation;
+  const rotationRad = (layerRotationDeg * Math.PI) / 180;
+  let scale = depthScale;
+  if (stackRotation !== 0) {
+    const aspect = drawW / drawH;
+    const cover = rotationCoverScale(Math.abs(layerRotationDeg), aspect);
+    scale *= cover * (1 + stackRotationZoom);
+  }
   targetCtx.translate(x + drawW * 0.5, y + drawH * 0.5 + yShift);
   targetCtx.rotate(rotationRad);
   targetCtx.scale(scale, scale);
@@ -343,6 +372,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     stackOffsetY,
     stackOffsetZ,
     stackRotation,
+    stackRotationZoom,
   } = settings;
   targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
   targetCtx.fillStyle = `rgb(${white}, ${white}, ${white})`;
@@ -375,7 +405,8 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
       depthFromBottom,
       stackOffsetY,
       stackOffsetZ,
-      stackRotation
+      stackRotation,
+      stackRotationZoom
     );
     targetCtx.filter = `blur(${blurPx.toFixed(2)}px)`;
     targetCtx.drawImage(vellumLayer, 0, 0, drawW, drawH);
@@ -401,6 +432,7 @@ function render() {
   const stackOffsetY = Number(controls.stackOffsetY.value);
   const stackOffsetZ = Number(controls.stackOffsetZ.value);
   const stackRotation = Number(controls.stackRotation.value);
+  const stackRotationZoom = Number(controls.stackRotationZoom.value);
 
   controls.baseBlurOut.textContent = baseBlur.toFixed(2);
   controls.paperWhiteOut.textContent = String(white);
@@ -424,6 +456,7 @@ function render() {
     stackOffsetY,
     stackOffsetZ,
     stackRotation,
+    stackRotationZoom,
   });
 }
 
@@ -462,6 +495,7 @@ async function renderSequence() {
     stackOffsetY: Number(controls.stackOffsetY.value),
     stackOffsetZ: Number(controls.stackOffsetZ.value),
     stackRotation: Number(controls.stackRotation.value),
+    stackRotationZoom: Number(controls.stackRotationZoom.value),
   };
 
   const offscreen = document.createElement("canvas");
@@ -580,6 +614,7 @@ fileInput.addEventListener("change", (e) => {
 bindRangeNumber(controls.stackOffsetY, controls.stackOffsetYNum, (v) => v.toFixed(1));
 bindRangeNumber(controls.stackOffsetZ, controls.stackOffsetZNum, (v) => v.toFixed(4));
 bindRangeNumber(controls.stackRotation, controls.stackRotationNum, (v) => v.toFixed(2));
+bindRangeNumber(controls.stackRotationZoom, controls.stackRotationZoomNum, (v) => v.toFixed(4));
 exportBtn.onclick = () => {
   if (!layers.length) return;
   triggerDownload(
