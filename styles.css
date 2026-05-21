@@ -456,6 +456,25 @@ body.app {
   border-bottom-color: var(--accent-dim);
 }
 
+.scanner-select {
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--text-soft);
+  border-radius: 0;
+  padding: 8px 0;
+  margin-top: 1px;
+  font-family: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scanner-select:focus {
+  outline: none;
+  border-bottom-color: var(--accent-dim);
+}
+
 .preset-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

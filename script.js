@@ -24,7 +24,8 @@ const controls = {
   colorTolerance: document.getElementById("colorTolerance"),
   inkStrength: document.getElementById("inkStrength"),
   grainAmount: document.getElementById("grainAmount"),
-  paperWhite: document.getElementById("paperWhite"),
+  scannerBgMode: document.getElementById("scannerBgMode"),
+  scannerBgIntensity: document.getElementById("scannerBgIntensity"),
   stackOffsetY: document.getElementById("stackOffsetY"),
   stackOffsetZ: document.getElementById("stackOffsetZ"),
   stackRotation: document.getElementById("stackRotation"),
@@ -41,7 +42,7 @@ const controls = {
   colorToleranceOut: document.getElementById("colorToleranceOut"),
   inkStrengthOut: document.getElementById("inkStrengthOut"),
   grainAmountOut: document.getElementById("grainAmountOut"),
-  paperWhiteOut: document.getElementById("paperWhiteOut"),
+  scannerBgIntensityOut: document.getElementById("scannerBgIntensityOut"),
 };
 
 let layers = [];
@@ -61,7 +62,8 @@ const SETTINGS_DEFAULTS = {
   colorTolerance: 0.09,
   inkStrength: 1.05,
   grainAmount: 0.075,
-  paperWhite: 248,
+  scannerBgMode: "white",
+  scannerBgIntensity: 0.696,
   stackOffsetY: 0.5,
   stackOffsetZ: 0.0004,
   stackRotation: 0.42,
@@ -70,6 +72,41 @@ const SETTINGS_DEFAULTS = {
 
 function isProtectedPreset(name) {
   return String(name).toLowerCase() === DEFAULT_PRESET_NAME;
+}
+
+function legacyIntensityFromPaperWhite(settings) {
+  if (settings.paperWhite === undefined) return SETTINGS_DEFAULTS.scannerBgIntensity;
+  const level = Number(settings.paperWhite);
+  if (settings.scannerBgMode === "black") {
+    return Math.max(0, Math.min(1, 1 - level / 40));
+  }
+  return Math.max(0, Math.min(1, (level - 232) / 23));
+}
+
+function scannerBackgroundFromParts(mode, intensity) {
+  const t = Math.max(0, Math.min(1, intensity));
+  if (mode === "black") {
+    const v = Math.round((1 - t) * 40);
+    return { mode, intensity: t, r: v, g: v, b: v, paperTone: 248 };
+  }
+  const v = Math.round(232 + t * 23);
+  return { mode, intensity: t, r: v, g: v, b: v, paperTone: v };
+}
+
+function scannerBackgroundFromSettings(settings) {
+  const mode = settings.scannerBgMode === "black" ? "black" : "white";
+  const rawIntensity = settings.scannerBgIntensity;
+  const intensity = Number.isFinite(Number(rawIntensity))
+    ? Number(rawIntensity)
+    : legacyIntensityFromPaperWhite(settings);
+  return scannerBackgroundFromParts(mode, intensity);
+}
+
+function formatScannerBedLabel(scannerBg) {
+  if (scannerBg.mode === "black") {
+    return `rgb ${scannerBg.r}`;
+  }
+  return String(scannerBg.r);
 }
 
 function currentSettings() {
@@ -82,7 +119,8 @@ function currentSettings() {
     colorTolerance: Number(controls.colorTolerance.value),
     inkStrength: Number(controls.inkStrength.value),
     grainAmount: Number(controls.grainAmount.value),
-    paperWhite: Number(controls.paperWhite.value),
+    scannerBgMode: controls.scannerBgMode.value,
+    scannerBgIntensity: Number(controls.scannerBgIntensity.value),
     stackOffsetY: Number(controls.stackOffsetY.value),
     stackOffsetZ: Number(controls.stackOffsetZ.value),
     stackRotation: Number(controls.stackRotation.value),
@@ -149,7 +187,10 @@ function sanitizeSettings(settings) {
     colorTolerance: Number(settings.colorTolerance ?? SETTINGS_DEFAULTS.colorTolerance),
     inkStrength: Number(settings.inkStrength),
     grainAmount: Number(settings.grainAmount),
-    paperWhite: Number(settings.paperWhite),
+    scannerBgMode: settings.scannerBgMode === "black" ? "black" : "white",
+    scannerBgIntensity: Number(
+      settings.scannerBgIntensity ?? legacyIntensityFromPaperWhite(settings)
+    ),
     stackOffsetY: Number(settings.stackOffsetY ?? SETTINGS_DEFAULTS.stackOffsetY),
     stackOffsetZ: Number(settings.stackOffsetZ ?? SETTINGS_DEFAULTS.stackOffsetZ),
     stackRotation: Number(settings.stackRotation ?? SETTINGS_DEFAULTS.stackRotation),
@@ -185,7 +226,10 @@ function applySettings(settings) {
   controls.colorTolerance.value = String(settings.colorTolerance ?? SETTINGS_DEFAULTS.colorTolerance);
   controls.inkStrength.value = String(settings.inkStrength ?? SETTINGS_DEFAULTS.inkStrength);
   controls.grainAmount.value = String(settings.grainAmount ?? SETTINGS_DEFAULTS.grainAmount);
-  controls.paperWhite.value = String(settings.paperWhite ?? SETTINGS_DEFAULTS.paperWhite);
+  controls.scannerBgMode.value = settings.scannerBgMode === "black" ? "black" : "white";
+  controls.scannerBgIntensity.value = String(
+    settings.scannerBgIntensity ?? legacyIntensityFromPaperWhite(settings)
+  );
   setRangeNumberPair(
     controls.stackOffsetY,
     controls.stackOffsetYNum,
@@ -472,7 +516,7 @@ function applyPaperWarmthAccumulation(targetCtx, targetCanvas, warmthAlpha, pape
 function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
   const {
     baseBlur,
-    white,
+    scannerBg,
     grain,
     blurStep,
     veilStep,
@@ -486,7 +530,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     stackRotationZoom,
   } = settings;
   targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-  targetCtx.fillStyle = `rgb(${white}, ${white}, ${white})`;
+  targetCtx.fillStyle = `rgb(${scannerBg.r}, ${scannerBg.g}, ${scannerBg.b})`;
   targetCtx.fillRect(0, 0, targetCanvas.width, targetCanvas.height);
 
   const stretch = canvasStretchRect(targetCanvas);
@@ -523,7 +567,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     targetCtx.drawImage(vellumLayer, 0, 0, drawW, drawH);
     targetCtx.filter = "none";
     targetCtx.globalAlpha = veilAlpha;
-    targetCtx.fillStyle = warmVeilColor(white, depthFromTop, paperWarmthStep, paperTranslucency);
+    targetCtx.fillStyle = warmVeilColor(scannerBg.paperTone, depthFromTop, paperWarmthStep, paperTranslucency);
     targetCtx.fillRect(0, 0, drawW, drawH);
     targetCtx.restore();
     const layerWarmth = effectivePaperWarmth(
@@ -532,15 +576,24 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
       i + 1,
       layersToRender.length
     );
-    applyPaperWarmthAccumulation(targetCtx, targetCanvas, layerWarmth, white, paperTranslucency);
+    applyPaperWarmthAccumulation(
+      targetCtx,
+      targetCanvas,
+      layerWarmth,
+      scannerBg.paperTone,
+      paperTranslucency
+    );
   }
 
-  drawGrain(targetCtx, targetCanvas, grain, white);
+  drawGrain(targetCtx, targetCanvas, grain, scannerBg.paperTone);
 }
 
 function render() {
   const baseBlur = Number(controls.baseBlur.value);
-  const white = Number(controls.paperWhite.value);
+  const scannerBg = scannerBackgroundFromParts(
+    controls.scannerBgMode.value,
+    Number(controls.scannerBgIntensity.value)
+  );
   const grain = Number(controls.grainAmount.value);
   const blurStep = Number(controls.blurStep.value);
   const veilStep = Number(controls.veilStep.value);
@@ -554,7 +607,7 @@ function render() {
   const stackRotationZoom = Number(controls.stackRotationZoom.value);
 
   controls.baseBlurOut.textContent = baseBlur.toFixed(2);
-  controls.paperWhiteOut.textContent = String(white);
+  controls.scannerBgIntensityOut.textContent = formatScannerBedLabel(scannerBg);
   controls.grainAmountOut.textContent = grain.toFixed(3);
   controls.veilStepOut.textContent = veilStep.toFixed(3);
   controls.paperWarmthStepOut.textContent = paperWarmthStep.toFixed(3);
@@ -566,7 +619,7 @@ function render() {
   const visibleLayers = layers.filter((layer) => layer.visible);
   drawComposite(ctx, canvas, visibleLayers, {
     baseBlur,
-    white,
+    scannerBg,
     grain,
     blurStep,
     veilStep,
@@ -606,7 +659,10 @@ async function renderSequence() {
 
   const settings = {
     baseBlur: Number(controls.baseBlur.value),
-    white: Number(controls.paperWhite.value),
+    scannerBg: scannerBackgroundFromParts(
+      controls.scannerBgMode.value,
+      Number(controls.scannerBgIntensity.value)
+    ),
     grain: Number(controls.grainAmount.value),
     blurStep: Number(controls.blurStep.value),
     veilStep: Number(controls.veilStep.value),
@@ -731,8 +787,10 @@ fileInput.addEventListener("change", (e) => {
   "colorTolerance",
   "inkStrength",
   "grainAmount",
-  "paperWhite",
+  "scannerBgIntensity",
 ].forEach((k) => controls[k].addEventListener("input", render));
+
+controls.scannerBgMode.addEventListener("change", render);
 
 bindRangeNumber(controls.stackOffsetY, controls.stackOffsetYNum, (v) => v.toFixed(1));
 bindRangeNumber(controls.stackOffsetZ, controls.stackOffsetZNum, (v) => v.toFixed(4));
