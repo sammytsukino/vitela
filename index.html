@@ -36,6 +36,10 @@
 
         <section class="glyph-collection">
           <div class="glyph-collection-label">settings</div>
+          <div class="settings-context" id="settingsContext">
+            <span id="settingsContextLabel">global</span>
+            <button type="button" id="resetLayerOverridesBtn" class="btn btn-ghost btn-compact settings-reset" hidden>reset overrides</button>
+          </div>
           <div class="gui-folder-body">
             <label class="gui-row"><span class="gui-row-label">top blur</span><input id="baseBlur" type="range" min="0" max="2" step="0.05" value="0.35" /><output id="baseBlurOut" class="gui-value">0.35</output></label>
             <label class="gui-row"><span class="gui-row-label">veil</span><input id="veilStep" type="range" min="0" max="0.18" step="0.001" value="0" /><output id="veilStepOut" class="gui-value">0.000</output></label>

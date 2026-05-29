@@ -14,6 +14,9 @@ const deletePresetBtn = document.getElementById("deletePresetBtn");
 const exportPresetsBtn = document.getElementById("exportPresetsBtn");
 const importPresetsBtn = document.getElementById("importPresetsBtn");
 const importPresetsInput = document.getElementById("importPresetsInput");
+const settingsContext = document.getElementById("settingsContext");
+const settingsContextLabel = document.getElementById("settingsContextLabel");
+const resetLayerOverridesBtn = document.getElementById("resetLayerOverridesBtn");
 
 const controls = {
   baseBlur: document.getElementById("baseBlur"),
@@ -46,6 +49,17 @@ const controls = {
 };
 
 let layers = [];
+let selectedLayerIndex = -1;
+let cachedGlobalSettings = null;
+const LAYER_OVERRIDE_KEYS = new Set([
+  "baseBlur",
+  "veilStep",
+  "paperWarmthStep",
+  "blurStep",
+  "paperTranslucency",
+  "colorTolerance",
+  "inkStrength",
+]);
 const parseSlideOrder = (n) => (n.match(/(\d+)(?!.*\d)/) ? Number(n.match(/(\d+)(?!.*\d)/)[1]) : Number.MAX_SAFE_INTEGER);
 const layerCanvas = document.createElement("canvas");
 const layerCtx = layerCanvas.getContext("2d", { willReadFrequently: true });
@@ -126,6 +140,98 @@ function currentSettings() {
     stackRotation: Number(controls.stackRotation.value),
     stackRotationZoom: Number(controls.stackRotationZoom.value),
   };
+}
+
+function globalSettingsSnapshot() {
+  if (selectedLayerIndex >= 0 && cachedGlobalSettings) return { ...cachedGlobalSettings };
+  return currentSettings();
+}
+
+function layerOverrideValue(layer, key, globalValue) {
+  const override = layer.overrides?.[key];
+  return override === undefined ? globalValue : Number(override);
+}
+
+function layerHasOverrides(layer) {
+  return Boolean(layer.overrides && Object.keys(layer.overrides).length);
+}
+
+function setLayerOverrideValue(layer, key, value) {
+  if (!layer.overrides) layer.overrides = {};
+  layer.overrides[key] = value;
+}
+
+function clearLayerOverrides(layer) {
+  delete layer.overrides;
+}
+
+function effectiveControlValue(key, globals) {
+  if (selectedLayerIndex < 0 || !LAYER_OVERRIDE_KEYS.has(key)) {
+    return globals[key];
+  }
+  return layerOverrideValue(layers[selectedLayerIndex], key, globals[key]);
+}
+
+function syncControlsToSelection() {
+  const globals = globalSettingsSnapshot();
+  for (const key of LAYER_OVERRIDE_KEYS) {
+    controls[key].value = String(effectiveControlValue(key, globals));
+  }
+  updateSettingsContextUi();
+}
+
+function updateSettingsContextUi() {
+  if (!settingsContext || !settingsContextLabel || !resetLayerOverridesBtn) return;
+  if (selectedLayerIndex < 0) {
+    settingsContext.classList.remove("is-layer");
+    settingsContextLabel.textContent = "global";
+    resetLayerOverridesBtn.hidden = true;
+    return;
+  }
+  const layer = layers[selectedLayerIndex];
+  settingsContext.classList.add("is-layer");
+  settingsContextLabel.textContent = layer?.fileName ?? "layer";
+  resetLayerOverridesBtn.hidden = !layerHasOverrides(layer);
+}
+
+function selectLayer(index) {
+  if (index < 0 || index >= layers.length) return;
+  if (selectedLayerIndex === index) {
+    deselectLayer();
+    return;
+  }
+  if (selectedLayerIndex < 0) {
+    cachedGlobalSettings = globalSettingsSnapshot();
+  }
+  selectedLayerIndex = index;
+  syncControlsToSelection();
+  updateLayersUi();
+}
+
+function deselectLayer() {
+  if (selectedLayerIndex < 0) return;
+  if (cachedGlobalSettings) {
+    applySettings(cachedGlobalSettings, { renderPreview: false });
+  }
+  selectedLayerIndex = -1;
+  cachedGlobalSettings = null;
+  updateSettingsContextUi();
+  updateLayersUi();
+  render();
+}
+
+function handleLayerAwareControlInput(key, value) {
+  if (selectedLayerIndex >= 0 && LAYER_OVERRIDE_KEYS.has(key)) {
+    setLayerOverrideValue(layers[selectedLayerIndex], key, value);
+    controls[key].value = String(value);
+    updateSettingsContextUi();
+    updateLayersUi();
+    render();
+    return;
+  }
+  controls[key].value = String(value);
+  if (cachedGlobalSettings) cachedGlobalSettings[key] = value;
+  render();
 }
 
 function clampStackValue(value, min, max) {
@@ -217,7 +323,8 @@ function refreshPresetSelect(preferredName = "") {
   }
 }
 
-function applySettings(settings) {
+function applySettings(settings, options = {}) {
+  const { renderPreview = true } = options;
   controls.baseBlur.value = String(settings.baseBlur ?? SETTINGS_DEFAULTS.baseBlur);
   controls.veilStep.value = String(settings.veilStep ?? SETTINGS_DEFAULTS.veilStep);
   controls.paperWarmthStep.value = String(settings.paperWarmthStep ?? SETTINGS_DEFAULTS.paperWarmthStep);
@@ -254,7 +361,7 @@ function applySettings(settings) {
     settings.stackRotationZoom ?? SETTINGS_DEFAULTS.stackRotationZoom,
     (v) => v.toFixed(4)
   );
-  render();
+  if (renderPreview) render();
 }
 
 function exportPresetsToJson() {
@@ -539,15 +646,22 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     const layer = layersToRender[i];
     const { x, y, drawW, drawH } = stretch;
     const depthFromTop = layersToRender.length - 1 - i;
-    const blurPx = baseBlur + depthFromTop * blurStep;
-    const veilAlpha = Math.min(0.45, 0.02 + depthFromTop * veilStep);
+    const layerBaseBlur = layerOverrideValue(layer, "baseBlur", baseBlur);
+    const layerBlurStep = layerOverrideValue(layer, "blurStep", blurStep);
+    const layerVeilStep = layerOverrideValue(layer, "veilStep", veilStep);
+    const layerPaperWarmthStep = layerOverrideValue(layer, "paperWarmthStep", paperWarmthStep);
+    const layerPaperTranslucency = layerOverrideValue(layer, "paperTranslucency", paperTranslucency);
+    const layerColorTolerance = layerOverrideValue(layer, "colorTolerance", colorTolerance);
+    const layerInkStrength = layerOverrideValue(layer, "inkStrength", inkStrength);
+    const blurPx = layerBaseBlur + depthFromTop * layerBlurStep;
+    const veilAlpha = Math.min(0.45, 0.02 + depthFromTop * layerVeilStep);
     const vellumLayer = buildVellumLayer(
       layer.image,
       drawW,
       drawH,
-      paperTranslucency,
-      inkStrength,
-      colorTolerance
+      layerPaperTranslucency,
+      layerInkStrength,
+      layerColorTolerance
     );
     const depthFromBottom = i;
     targetCtx.save();
@@ -567,12 +681,17 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
     targetCtx.drawImage(vellumLayer, 0, 0, drawW, drawH);
     targetCtx.filter = "none";
     targetCtx.globalAlpha = veilAlpha;
-    targetCtx.fillStyle = warmVeilColor(scannerBg.paperTone, depthFromTop, paperWarmthStep, paperTranslucency);
+    targetCtx.fillStyle = warmVeilColor(
+      scannerBg.paperTone,
+      depthFromTop,
+      layerPaperWarmthStep,
+      layerPaperTranslucency
+    );
     targetCtx.fillRect(0, 0, drawW, drawH);
     targetCtx.restore();
     const layerWarmth = effectivePaperWarmth(
-      paperWarmthStep,
-      paperTranslucency,
+      layerPaperWarmthStep,
+      layerPaperTranslucency,
       i + 1,
       layersToRender.length
     );
@@ -581,7 +700,7 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
       targetCanvas,
       layerWarmth,
       scannerBg.paperTone,
-      paperTranslucency
+      layerPaperTranslucency
     );
   }
 
@@ -589,18 +708,19 @@ function drawComposite(targetCtx, targetCanvas, layersToRender, settings) {
 }
 
 function render() {
-  const baseBlur = Number(controls.baseBlur.value);
+  const globals = globalSettingsSnapshot();
+  const baseBlur = effectiveControlValue("baseBlur", globals);
   const scannerBg = scannerBackgroundFromParts(
     controls.scannerBgMode.value,
     Number(controls.scannerBgIntensity.value)
   );
   const grain = Number(controls.grainAmount.value);
-  const blurStep = Number(controls.blurStep.value);
-  const veilStep = Number(controls.veilStep.value);
-  const paperWarmthStep = Number(controls.paperWarmthStep.value);
-  const paperTranslucency = Number(controls.paperTranslucency.value);
-  const colorTolerance = Number(controls.colorTolerance.value);
-  const inkStrength = Number(controls.inkStrength.value);
+  const blurStep = effectiveControlValue("blurStep", globals);
+  const veilStep = effectiveControlValue("veilStep", globals);
+  const paperWarmthStep = effectiveControlValue("paperWarmthStep", globals);
+  const paperTranslucency = effectiveControlValue("paperTranslucency", globals);
+  const colorTolerance = effectiveControlValue("colorTolerance", globals);
+  const inkStrength = effectiveControlValue("inkStrength", globals);
   const stackOffsetY = Number(controls.stackOffsetY.value);
   const stackOffsetZ = Number(controls.stackOffsetZ.value);
   const stackRotation = Number(controls.stackRotation.value);
@@ -618,15 +738,15 @@ function render() {
 
   const visibleLayers = layers.filter((layer) => layer.visible);
   drawComposite(ctx, canvas, visibleLayers, {
-    baseBlur,
+    baseBlur: globals.baseBlur,
     scannerBg,
     grain,
-    blurStep,
-    veilStep,
-    paperWarmthStep,
-    paperTranslucency,
-    colorTolerance,
-    inkStrength,
+    blurStep: globals.blurStep,
+    veilStep: globals.veilStep,
+    paperWarmthStep: globals.paperWarmthStep,
+    paperTranslucency: globals.paperTranslucency,
+    colorTolerance: globals.colorTolerance,
+    inkStrength: globals.inkStrength,
     stackOffsetY,
     stackOffsetZ,
     stackRotation,
@@ -658,18 +778,12 @@ async function renderSequence() {
   renderStatus.textContent = "preparing...";
 
   const settings = {
-    baseBlur: Number(controls.baseBlur.value),
+    ...globalSettingsSnapshot(),
     scannerBg: scannerBackgroundFromParts(
       controls.scannerBgMode.value,
       Number(controls.scannerBgIntensity.value)
     ),
     grain: Number(controls.grainAmount.value),
-    blurStep: Number(controls.blurStep.value),
-    veilStep: Number(controls.veilStep.value),
-    paperWarmthStep: Number(controls.paperWarmthStep.value),
-    paperTranslucency: Number(controls.paperTranslucency.value),
-    colorTolerance: Number(controls.colorTolerance.value),
-    inkStrength: Number(controls.inkStrength.value),
     stackOffsetY: Number(controls.stackOffsetY.value),
     stackOffsetZ: Number(controls.stackOffsetZ.value),
     stackRotation: Number(controls.stackRotation.value),
@@ -710,6 +824,13 @@ function reorderLayers(fromIndex, toIndex) {
   const [moved] = updated.splice(fromIndex, 1);
   updated.splice(toIndex, 0, moved);
   layers = updated;
+  if (selectedLayerIndex === fromIndex) {
+    selectedLayerIndex = toIndex;
+  } else if (fromIndex < selectedLayerIndex && toIndex >= selectedLayerIndex) {
+    selectedLayerIndex -= 1;
+  } else if (fromIndex > selectedLayerIndex && toIndex <= selectedLayerIndex) {
+    selectedLayerIndex += 1;
+  }
 }
 
 function updateLayersUi() {
@@ -718,6 +839,7 @@ function updateLayersUi() {
   displayLayers.forEach(({ layer, index }) => {
     const li = document.createElement("li");
     li.className = "layer-row";
+    if (index === selectedLayerIndex) li.classList.add("is-selected");
     li.draggable = true;
     li.dataset.index = String(index);
 
@@ -752,7 +874,16 @@ function updateLayersUi() {
     });
 
     const meta = document.createElement("div");
-    meta.innerHTML = `<div class="layer-name">${layer.fileName}</div><div class="layer-info">${index === layers.length - 1 ? "top" : index === 0 ? "bottom" : "middle"}</div>`;
+    meta.className = "layer-meta";
+    const overrideCount = layer.overrides ? Object.keys(layer.overrides).length : 0;
+    const overrideHint = overrideCount
+      ? `<div class="layer-override-badge">${overrideCount} override${overrideCount === 1 ? "" : "s"}</div>`
+      : "";
+    meta.innerHTML = `<div class="layer-name">${layer.fileName}</div><div class="layer-info">${index === layers.length - 1 ? "top" : index === 0 ? "bottom" : "middle"}</div>${overrideHint}`;
+    meta.addEventListener("click", () => {
+      selectLayer(index);
+    });
+
     const btn = document.createElement("button");
     btn.className = "toggle-visibility";
     btn.textContent = layer.visible ? "visible" : "hidden";
@@ -767,7 +898,7 @@ async function handleFiles(files) {
   for (const file of files) {
     if (!file.type.startsWith("image/")) continue;
     const image = await fileToImage(file);
-    added.push({ fileName: file.name, order: parseSlideOrder(file.name), image, visible: true });
+    added.push({ fileName: file.name, order: parseSlideOrder(file.name), image, visible: true, overrides: {} });
   }
   layers = [...layers, ...added].sort((a, b) => (a.order - b.order) || a.fileName.localeCompare(b.fileName, "en"));
   updateLayersUi();
@@ -788,9 +919,29 @@ fileInput.addEventListener("change", (e) => {
   "inkStrength",
   "grainAmount",
   "scannerBgIntensity",
-].forEach((k) => controls[k].addEventListener("input", render));
+].forEach((k) => {
+  controls[k].addEventListener("input", () => {
+    handleLayerAwareControlInput(k, Number(controls[k].value));
+  });
+});
 
 controls.scannerBgMode.addEventListener("change", render);
+
+if (resetLayerOverridesBtn) {
+  resetLayerOverridesBtn.onclick = () => {
+    if (selectedLayerIndex < 0) return;
+    clearLayerOverrides(layers[selectedLayerIndex]);
+    syncControlsToSelection();
+    updateLayersUi();
+    render();
+  };
+}
+
+if (settingsContextLabel) {
+  settingsContextLabel.addEventListener("click", () => {
+    if (selectedLayerIndex >= 0) deselectLayer();
+  });
+}
 
 bindRangeNumber(controls.stackOffsetY, controls.stackOffsetYNum, (v) => v.toFixed(1));
 bindRangeNumber(controls.stackOffsetZ, controls.stackOffsetZNum, (v) => v.toFixed(4));
@@ -806,7 +957,15 @@ exportBtn.onclick = () => {
 renderSequenceBtn.onclick = () => {
   renderSequence();
 };
-clearBtn.onclick = () => { layers = []; fileInput.value = ""; updateLayersUi(); render(); };
+clearBtn.onclick = () => {
+  layers = [];
+  selectedLayerIndex = -1;
+  cachedGlobalSettings = null;
+  fileInput.value = "";
+  updateSettingsContextUi();
+  updateLayersUi();
+  render();
+};
 
 savePresetBtn.onclick = () => {
   const name = window.prompt("preset name:", presetSelect.value || "");
@@ -814,7 +973,7 @@ savePresetBtn.onclick = () => {
   const trimmed = name.trim();
   if (!trimmed) return;
   const presets = loadStoredPresets();
-  presets[trimmed] = currentSettings();
+  presets[trimmed] = globalSettingsSnapshot();
   saveStoredPresets(presets);
   refreshPresetSelect(trimmed);
 };
@@ -824,6 +983,7 @@ loadPresetBtn.onclick = () => {
   if (!selected) return;
   const presets = loadStoredPresets();
   if (!presets[selected]) return;
+  deselectLayer();
   applySettings(presets[selected]);
 };
 
@@ -870,5 +1030,6 @@ if (!localStorage.getItem(PRESETS_STORAGE_KEY)) {
   if (presets[DEFAULT_PRESET_NAME]) applySettings(presets[DEFAULT_PRESET_NAME]);
 }
 refreshPresetSelect(DEFAULT_PRESET_NAME);
+updateSettingsContextUi();
 updateCanvasSizeLabel();
 render();
